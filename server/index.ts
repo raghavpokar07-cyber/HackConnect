@@ -1673,6 +1673,8 @@ if (config.mongoUri) {
   console.warn("MONGODB_URI is not configured; database routes will return 503.");
 }
 
-app.listen(config.port, () => {
-  console.info(`HackConnect API listening on http://127.0.0.1:${config.port}`);
+const PORT = config.port;
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.info(`HackConnect API listening on port ${PORT}`);
 });

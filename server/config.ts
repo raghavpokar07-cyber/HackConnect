@@ -8,7 +8,7 @@ const optionalValue = z.preprocess(
 
 const configSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
-  WEB_ORIGIN: z.string().url().default("http://localhost:5173"),
+  WEB_ORIGIN: z.string().url().default("https://your-project.vercel.app"),
   MONGODB_URI: optionalValue,
   JWT_SECRET: z.preprocess(
     (value) => (value === "" ? undefined : value),
