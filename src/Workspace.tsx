@@ -174,7 +174,9 @@ function AuthPage({ onNavigate }: Props) {
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
   const googleButtonRef = useRef<HTMLDivElement>(null);
   const navigateRef = useRef(onNavigate);
-  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
+  const googleClientId =
+    import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() ||
+    "262093778913-6ija8ou7dlgcirqq9ut5ulde4cq5s4d2.apps.googleusercontent.com";
 
   useEffect(() => {
     navigateRef.current = onNavigate;
@@ -855,7 +857,9 @@ function SecurityAndAchievements() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const googleButtonRef = useRef<HTMLDivElement>(null);
-  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim();
+  const googleClientId =
+    import.meta.env.VITE_GOOGLE_CLIENT_ID?.trim() ||
+    "262093778913-6ija8ou7dlgcirqq9ut5ulde4cq5s4d2.apps.googleusercontent.com";
 
   const refresh = async () => {
     const [items, status] = await Promise.all([getAchievements(), getMfaStatus()]);

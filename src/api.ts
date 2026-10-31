@@ -199,7 +199,7 @@ function parsePlanResponse(value: unknown): { plan: string } {
 const API_BASE_URL = (
   (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
   (import.meta.env.VITE_API_URL as string | undefined) ||
-  ""
+  "https://hackconnect-backend-1m62.onrender.com"
 ).replace(/\/+$/, "");
 
 async function requestJson<T>(
