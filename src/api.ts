@@ -196,6 +196,12 @@ function parsePlanResponse(value: unknown): { plan: string } {
   return { plan: value.plan };
 }
 
+const API_BASE_URL = (
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ||
+  (import.meta.env.VITE_API_URL as string | undefined) ||
+  ""
+).replace(/\/+$/, "");
+
 async function requestJson<T>(
   path: string,
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
@@ -207,7 +213,7 @@ async function requestJson<T>(
   if (!["GET", "HEAD", "OPTIONS"].includes(method)) {
     headers["X-CSRF-Token"] = await getCsrfToken();
   }
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${API_BASE_URL}/api${path}`, {
     method,
     credentials: "include",
     headers,
@@ -238,7 +244,7 @@ let csrfTokenCache: string | null = null;
 
 async function getCsrfToken(): Promise<string> {
   if (csrfTokenCache) return csrfTokenCache;
-  const response = await fetch("/api/auth/csrf", { credentials: "include" });
+  const response = await fetch(`${API_BASE_URL}/api/auth/csrf`, { credentials: "include" });
   let payload: unknown;
   try {
     payload = await response.json();
@@ -261,7 +267,7 @@ async function requestMultipart<T>(
   formData: FormData,
   parseResponse: (value: unknown) => T,
 ): Promise<T> {
-  const response = await fetch(`/api${path}`, {
+  const response = await fetch(`${API_BASE_URL}/api${path}`, {
     method: "POST",
     credentials: "include",
     headers: { "X-CSRF-Token": await getCsrfToken() },
@@ -303,7 +309,7 @@ function parseAchievement(value: unknown): Achievement {
     issuer: value.issuer,
     achievedAt: value.achievedAt,
     publicVisible: value.publicVisible,
-    imageUrl: value.imageUrl,
+    imageUrl: value.imageUrl.startsWith("/") ? `${API_BASE_URL}${value.imageUrl}` : value.imageUrl,
   };
 }
 

@@ -66,6 +66,9 @@ const googleClient = config.googleClientId
   : null;
 
 app.disable("x-powered-by");
+if (config.isProduction) {
+  app.set("trust proxy", 1);
+}
 app.use(helmet());
 app.use(
   cors({
@@ -353,7 +356,7 @@ function createSession(userId: string, response: Response) {
   response.cookie(cookieName, token, {
     httpOnly: true,
     secure: config.isProduction,
-    sameSite: "lax",
+    sameSite: config.isProduction ? "none" : "lax",
     maxAge: sessionDurationMs,
     path: "/",
   });
@@ -363,7 +366,7 @@ function clearSession(response: Response) {
   response.clearCookie(cookieName, {
     httpOnly: true,
     secure: config.isProduction,
-    sameSite: "lax",
+    sameSite: config.isProduction ? "none" : "lax",
     path: "/",
   });
 }
@@ -509,7 +512,7 @@ app.get("/api/auth/csrf", (request, response) => {
   response.cookie(csrfCookieName, csrfToken, {
     httpOnly: false,
     secure: config.isProduction,
-    sameSite: "lax",
+    sameSite: config.isProduction ? "none" : "lax",
     maxAge: sessionDurationMs,
     path: "/",
   });
@@ -816,7 +819,7 @@ app.post(
 app.get("/api/auth/me", requireAuth, requireDatabase, async (request, response) => {
   const user = await User.findById(request.auth?.userId);
   if (!user) {
-    response.clearCookie(cookieName, { path: "/" });
+    clearSession(response);
     throw new HttpError(401, "Your account could not be found. Please sign in again.");
   }
   response.json({ user: toPublicUser(user) });
