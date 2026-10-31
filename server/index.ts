@@ -1670,8 +1670,13 @@ const errorHandler: ErrorRequestHandler = (error: unknown, _request, response, n
 app.use(errorHandler);
 
 if (config.mongoUri) {
-  await mongoose.connect(config.mongoUri);
-  console.info("MongoDB connected.");
+  try {
+    await mongoose.connect(config.mongoUri);
+    console.info("MongoDB connected.");
+    } catch (error) {
+    console.error("MongoDB connection failed:", error);
+  }
+
 } else {
   console.warn("MONGODB_URI is not configured; database routes will return 503.");
 }
