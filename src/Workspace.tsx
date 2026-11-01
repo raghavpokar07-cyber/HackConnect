@@ -792,7 +792,7 @@ function HackathonsPage({ signedIn }: { signedIn: boolean }) {
             onClick={() => setInterestedOnly((current) => !current)}
           >
             <Heart size={15} fill="currentColor" />
-            {interestedOnly ? "SHOW ALL HACKATHONS" : `INTERESTED HACKATHONS${syncedInterestedCount ? ` · ${syncedInterestedCount}` : ""}`}
+            {interestedOnly ? "SHOW ALL HACKATHONS" : "INTERESTED HACKATHONS"}
           </button>
         </div>
       </div>
