@@ -85,6 +85,7 @@ import {
   Sparkles,
   Star,
   Trophy,
+  UserPlus,
   Users,
   UsersRound,
   X,
@@ -785,20 +786,31 @@ function HackathonsPage({ signedIn }: { signedIn: boolean }) {
   );
 }
 
-function NotificationsPage({ onNavigate }: NavigateProps) {
+function NotificationsPage({
+  onNavigate,
+  onUnreadCountChange,
+}: NavigateProps & { onUnreadCountChange: (count: number) => void }) {
   const [notifications, setNotifications] = useState<WorkspaceNotification[]>([]);
   const [error, setError] = useState("");
+  const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
     const result = await getNotifications();
     setNotifications(result.notifications);
+    onUnreadCountChange(result.unreadCount);
   };
 
   useEffect(() => {
     void refresh().catch((requestError: unknown) =>
       setError(requestError instanceof Error ? requestError.message : "Could not load notifications."),
-    );
+    ).finally(() => setLoading(false));
   }, []);
+
+  const unreadCount = notifications.filter((item) => !item.readAt).length;
+  const filteredNotifications = filter === "unread"
+    ? notifications.filter((item) => !item.readAt)
+    : notifications;
 
   const markRead = async (item: WorkspaceNotification) => {
     try {
@@ -807,6 +819,7 @@ function NotificationsPage({ onNavigate }: NavigateProps) {
         setNotifications((current) => current.map((notification) =>
           notification.id === item.id ? { ...notification, readAt: new Date().toISOString() } : notification,
         ));
+        onUnreadCountChange(Math.max(0, unreadCount - 1));
       }
       const destination: Record<string, AppView> = {
         "/connections": "connections",
@@ -825,6 +838,7 @@ function NotificationsPage({ onNavigate }: NavigateProps) {
     try {
       await markAllNotificationsRead();
       setNotifications((current) => current.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
+      onUnreadCountChange(0);
       setError("");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not mark notifications as read.");
@@ -833,9 +847,70 @@ function NotificationsPage({ onNavigate }: NavigateProps) {
 
   return (
     <>
-      <div className="workspace-welcome"><div><span className="workspace-kicker">WHAT’S HAPPENING</span><h1>Your <em>notifications.</em></h1><p>Connection activity, team updates, messages, ratings, and matching events.</p></div><button className="workspace-quiet" onClick={() => void markAllRead()}>MARK ALL READ</button></div>
-      <div className="notification-list">{notifications.map((item) => <button className={`notification-row ${item.readAt ? "read" : "unread"}`} key={item.id} onClick={() => void markRead(item)}><span className="notification-dot" /><span><b>{item.title}</b><small>{item.body}</small><time>{new Date(item.createdAt).toLocaleString()}</time></span><ArrowUpRight size={16} /></button>)}</div>
-      {!notifications.length && !error && <div className="empty-search">You’re all caught up. New activity will show up here.</div>}
+      <div className="workspace-welcome notification-welcome">
+        <div><span className="workspace-kicker">YOUR ACTIVITY</span><h1>Notifications<em>.</em></h1><p>Team updates, new connections, messages, and more—all in one place.</p></div>
+        <div className="notification-heading-actions">
+          <span className="notification-unread-count">{unreadCount} UNREAD</span>
+          <button className="workspace-quiet" disabled={!unreadCount} onClick={() => void markAllRead()}><Check size={14} /> MARK ALL READ</button>
+        </div>
+      </div>
+      <section className="notification-inbox" aria-label="Your notifications">
+        <div className="notification-toolbar">
+          <div><span className="workspace-kicker">INBOX</span><b>{notifications.length} {notifications.length === 1 ? "UPDATE" : "UPDATES"}</b></div>
+          <div className="notification-filters" aria-label="Filter notifications">
+            <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>ALL</button>
+            <button className={filter === "unread" ? "active" : ""} onClick={() => setFilter("unread")}>UNREAD{unreadCount > 0 ? ` · ${unreadCount}` : ""}</button>
+          </div>
+        </div>
+        <div className="notification-list">
+          {filteredNotifications.map((item) => {
+            const NotificationIcon = {
+              "connection-request": UserPlus,
+              "connection-accepted": UsersRound,
+              "team-update": Users,
+              "team-message": MessageSquare,
+              rating: Star,
+              hackathon: CalendarDays,
+              system: Sparkles,
+            }[item.type];
+            const category = item.type.replace(/-/g, " ");
+            return (
+              <button
+                className={`notification-row ${item.readAt ? "read" : "unread"} notification-${item.type}`}
+                key={item.id}
+                onClick={() => void markRead(item)}
+                aria-label={`${item.title}. ${item.body}`}
+              >
+                <span className="notification-type-icon" aria-hidden="true">
+                  {item.actor?.avatarUrl
+                    ? <img src={item.actor.avatarUrl} alt="" />
+                    : <NotificationIcon size={17} />}
+                </span>
+                <span className="notification-copy">
+                  <span className="notification-meta"><span>{category}</span>{!item.readAt && <i>NEW</i>}</span>
+                  <b>{item.title}</b>
+                  <small>{item.body}</small>
+                  <time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}</time>
+                </span>
+                <ArrowUpRight className="notification-open-icon" size={16} aria-hidden="true" />
+              </button>
+            );
+          })}
+        </div>
+        {!loading && !filteredNotifications.length && !error && (
+          <div className="notification-empty">
+            <span><Bell size={20} /></span>
+            <b>{filter === "unread" ? "You’re all caught up." : "Your inbox is quiet."}</b>
+            <small>{filter === "unread" ? "There are no unread updates right now." : "New connection and team activity will show up here."}</small>
+            {filter === "unread" && notifications.length > 0 && <button onClick={() => setFilter("all")}>VIEW ALL UPDATES <ArrowRight size={14} /></button>}
+          </div>
+        )}
+      </section>
       {error && <p className="assistant-feedback" role="alert">{error}</p>}
     </>
   );
@@ -1398,7 +1473,7 @@ function WorkspacePage({ view, onNavigate, onViewProfile, profileId, currentUser
   return (
     <main className="workspace-app">
       <aside className="workspace-sidebar"><Brand onClick={() => onNavigate("landing")} /><span className="workspace-label">YOUR WORKSPACE</span><nav>{navigation.map(({ id, label, icon: Icon }) => <button className={view === id ? "active" : ""} key={id} onClick={() => onNavigate(id)}><Icon size={17} /><span>{label}</span>{id === "notifications" && unreadNotifications > 0 && <span className="nav-unread">{unreadNotifications > 9 ? "9+" : unreadNotifications}</span>}</button>)}</nav><div className="sidebar-bottom"><button className="ai-sidebar-card" onClick={() => onNavigate("teams")}><Sparkles size={17} /><span><b>Your team sidekick</b><small>Good ideas, meet good plans.</small></span><ArrowUpRight size={14} /></button><button className="sidebar-user" onClick={() => onNavigate("profile")}><span className="mini-avatar lime">{initials(currentUser?.fullName ?? "Builder")}</span><span><b>{currentUser?.fullName ?? "Guest preview"}</b><small>{currentUser?.role || (currentUser ? "Student builder" : "Sign in to sync data")}</small></span><ChevronDown size={15} /></button>{currentUser ? <button className="sidebar-exit" onClick={() => void signOut()}><LogOut size={15} /> SIGN OUT</button> : <button className="sidebar-exit sidebar-signin" onClick={() => onNavigate("auth")}><LogIn size={15} /> SIGN IN</button>}</div></aside>
-      <section className="workspace-main"><header className="workspace-topbar"><div className="workspace-crumb"><button onClick={() => onNavigate("dashboard")}>WORKSPACE</button><span>/</span><b>{activeItem.label.toUpperCase()}</b></div><div className="workspace-top-actions"><span className="preview-badge"><i /> {currentUser ? "ACCOUNT CONNECTED" : "SIGN IN REQUIRED"}</span><button className="top-icon" aria-label="Search"><Search size={17} /></button><button className="top-icon notification-icon" aria-label={`Notifications${unreadNotifications ? `, ${unreadNotifications} unread` : ""}`} onClick={() => onNavigate("notifications")}><Bell size={17} />{unreadNotifications > 0 && <i>{unreadNotifications > 9 ? "9+" : unreadNotifications}</i>}</button><span className="top-user-avatar">{initials(currentUser?.fullName ?? "Guest")}</span></div></header><div className={`workspace-content ${view === "chat" ? "workspace-chat-content" : ""}`}><div className="preview-banner"><Sparkles size={14} /><span><b>{currentUser ? "MONGODB WORKSPACE" : "WORKSPACE PREVIEW"}</b> · {currentUser ? "Your profile, connections, teams, tasks, messages, saves, and reviews are stored in MongoDB." : "Sign in to connect your account. Verified event details come from source listings."}</span></div>{sessionError && !currentUser && <p className="assistant-feedback" role="status">{sessionError}</p>}{view === "dashboard" && <DashboardHome view={view} onNavigate={onNavigate} currentUser={currentUser} />}{view === "discover" && <DiscoveryPage onNavigate={onNavigate} onViewProfile={onViewProfile ?? (() => undefined)} />}{view === "public-profile" && <PublicUserProfilePage profileId={profileId ?? ""} currentUserId={currentUser?.id} onNavigate={onNavigate} />}{view === "connections" && <ConnectionsPage onNavigate={onNavigate} />}{view === "teams" && <TeamsPage view={view} onNavigate={onNavigate} />}{view === "chat" && <ChatPage onNavigate={onNavigate} />}{view === "hackathons" && <HackathonsPage signedIn={Boolean(currentUser)} />}{view === "profile" && <ProfilePage />}{view === "ratings" && <RatingsPage />}{view === "notifications" && <NotificationsPage onNavigate={onNavigate} />}</div></section>
+      <section className="workspace-main"><header className="workspace-topbar"><div className="workspace-crumb"><button onClick={() => onNavigate("dashboard")}>WORKSPACE</button><span>/</span><b>{activeItem.label.toUpperCase()}</b></div><div className="workspace-top-actions"><span className="preview-badge"><i /> {currentUser ? "ACCOUNT CONNECTED" : "SIGN IN REQUIRED"}</span><button className="top-icon" aria-label="Search"><Search size={17} /></button><button className="top-icon notification-icon" aria-label={`Notifications${unreadNotifications ? `, ${unreadNotifications} unread` : ""}`} onClick={() => onNavigate("notifications")}><Bell size={17} />{unreadNotifications > 0 && <i>{unreadNotifications > 9 ? "9+" : unreadNotifications}</i>}</button><span className="top-user-avatar">{initials(currentUser?.fullName ?? "Guest")}</span></div></header><div className={`workspace-content ${view === "chat" ? "workspace-chat-content" : ""}`}><div className="preview-banner"><Sparkles size={14} /><span><b>{currentUser ? "MONGODB WORKSPACE" : "WORKSPACE PREVIEW"}</b> · {currentUser ? "Your profile, connections, teams, tasks, messages, saves, and reviews are stored in MongoDB." : "Sign in to connect your account. Verified event details come from source listings."}</span></div>{sessionError && !currentUser && <p className="assistant-feedback" role="status">{sessionError}</p>}{view === "dashboard" && <DashboardHome view={view} onNavigate={onNavigate} currentUser={currentUser} />}{view === "discover" && <DiscoveryPage onNavigate={onNavigate} onViewProfile={onViewProfile ?? (() => undefined)} />}{view === "public-profile" && <PublicUserProfilePage profileId={profileId ?? ""} currentUserId={currentUser?.id} onNavigate={onNavigate} />}{view === "connections" && <ConnectionsPage onNavigate={onNavigate} />}{view === "teams" && <TeamsPage view={view} onNavigate={onNavigate} />}{view === "chat" && <ChatPage onNavigate={onNavigate} />}{view === "hackathons" && <HackathonsPage signedIn={Boolean(currentUser)} />}{view === "profile" && <ProfilePage />}{view === "ratings" && <RatingsPage />}{view === "notifications" && <NotificationsPage onNavigate={onNavigate} onUnreadCountChange={setUnreadNotifications} />}</div></section>
     </main>
   );
 }
