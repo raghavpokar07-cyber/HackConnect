@@ -723,7 +723,8 @@ export function getHackathonCatalog() {
         !(typeof item.startDate === "string" || item.startDate === null) ||
         !(typeof item.endDate === "string" || item.endDate === null) ||
         !(typeof item.registrationDeadline === "string" || item.registrationDeadline === null) ||
-        typeof item.registrationUrl !== "string" || typeof item.teamSize !== "string" ||
+        typeof item.registrationUrl !== "string" ||
+        (item.teamSize !== undefined && typeof item.teamSize !== "string") ||
         typeof item.prize !== "string" ||
         typeof item.lastSeenAt !== "string") throw new Error("Invalid hackathon event.");
       return {
@@ -742,7 +743,7 @@ export function getHackathonCatalog() {
         endDate: item.endDate,
         registrationDeadline: item.registrationDeadline,
         registrationUrl: item.registrationUrl,
-        teamSize: item.teamSize,
+        teamSize: typeof item.teamSize === "string" ? item.teamSize : "",
         prize: item.prize,
         lastSeenAt: item.lastSeenAt,
       };
