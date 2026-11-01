@@ -13,6 +13,7 @@ export interface SourceFetchResult {
 }
 
 const DEVFOLIO_GRAPHQL_URL = "https://api.devfolio.co/v1/graphql";
+const mlhSeasonYear = new Date().getFullYear() + (new Date().getMonth() >= 7 ? 1 : 0);
 const DEVFOLIO_QUERY = `query UpcomingHackathons($now: timestamptz!) {
   hackathons(
     where: {
@@ -45,7 +46,7 @@ const DEVFOLIO_QUERY = `query UpcomingHackathons($now: timestamptz!) {
 export const hackathonSources: HackathonSource[] = [
   { id: "unstop", url: "https://unstop.com/hackathons", hosts: ["unstop.com"] },
   { id: "devpost", url: "https://devpost.com/hackathons", hosts: ["devpost.com"] },
-  { id: "mlh", url: "https://mlh.io/seasons/2026/events", hosts: ["mlh.io", "www.mlh.com"] },
+  { id: "mlh", url: `https://www.mlh.com/seasons/${mlhSeasonYear}/events`, hosts: ["mlh.io", "www.mlh.com"] },
   {
     id: "hackerearth",
     url: "https://www.hackerearth.com/challenges/hackathon/",
@@ -251,6 +252,82 @@ export function parseJsonLdEvents(html: string, sourceId: string): Omit<Hackatho
   });
 }
 
+export function parseMlhEvents(
+  html: string,
+  now = new Date(),
+): Omit<HackathonRecord, "createdAt" | "updatedAt">[] {
+  const script = html.match(
+    /<script\b(?=[^>]*\bdata-page=["']app["'])(?=[^>]*\btype=["']application\/json["'])[^>]*>([\s\S]*?)<\/script\s*>/i,
+  );
+  if (!script?.[1]) throw new Error("MLH returned an invalid event listing.");
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(script[1]);
+  } catch {
+    throw new Error("MLH returned invalid event listing data.");
+  }
+  if (!isRecord(payload) || !isRecord(payload.props) || !Array.isArray(payload.props.upcomingEvents)) {
+    throw new Error("MLH returned an invalid upcoming event list.");
+  }
+
+  const seen = new Set<string>();
+  return payload.props.upcomingEvents.flatMap((item: unknown) => {
+    if (!isRecord(item)) return [];
+    const sourceId = text(item.id, 300);
+    const sourceSlug = text(item.slug, 120).toLowerCase();
+    const name = text(item.name, 200);
+    const startDate = parseDate(item.startsAt);
+    const endDate = parseDate(item.endsAt);
+    if (
+      !sourceId ||
+      !/^[a-z0-9][a-z0-9-]{0,119}$/.test(sourceSlug) ||
+      !name ||
+      !startDate ||
+      item.status === "ended" ||
+      (endDate ?? startDate) < now
+    ) return [];
+
+    const stableId = `mlh:${sourceId}`;
+    if (seen.has(stableId)) return [];
+    seen.add(stableId);
+    const hash = createHash("sha256").update(stableId).digest("hex").slice(0, 12);
+    const customFields = isRecord(item.customFields) ? item.customFields : {};
+    const address = isRecord(item.venueAddress) ? item.venueAddress : {};
+    const format = item.formatType === "digital"
+      ? "online"
+      : item.formatType === "physical"
+        ? "in-person"
+        : item.formatType === "hybrid_physical"
+          ? "hybrid"
+        : "unknown";
+    const registrationUrl = safeHttpUrl(item.websiteUrl) ||
+      safeHttpUrl(`https://www.mlh.com${text(item.url, 300)}`);
+    if (!registrationUrl) return [];
+
+    return [{
+      source: "mlh",
+      sourceId,
+      slug: `mlh-${sourceSlug}-${hash}`,
+      name,
+      description: "",
+      categories: getCategories(customFields.hackathon_focus),
+      format,
+      venue: "",
+      city: text(address.city, 120),
+      region: text(address.state, 120),
+      country: text(address.country, 120),
+      startDate,
+      ...(endDate ? { endDate } : {}),
+      registrationUrl,
+      teamSize: "",
+      prize: "",
+      active: true,
+      lastSeenAt: now,
+    }];
+  });
+}
+
 export function parseDevfolioEvents(
   payload: unknown,
   now = new Date(),
@@ -404,6 +481,7 @@ export async function fetchHackathonSource(source: HackathonSource): Promise<Sou
     }
     const html = await readLimitedBody(response, 4_000_000);
     if (isAntiBotChallenge(html)) throw new Error("Source presented an anti-bot challenge.");
+    if (source.id === "mlh") return { source, events: parseMlhEvents(html) };
     const structuredEvents = parseJsonLdEvents(html, source.id);
     if (structuredEvents.length > 0) return { source, events: structuredEvents };
     return { source, events: await extractEventsWithOllama(html, source) };
