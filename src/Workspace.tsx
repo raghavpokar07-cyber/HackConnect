@@ -801,7 +801,38 @@ function HackathonsPage({ signedIn }: { signedIn: boolean }) {
       {sources.length > 0 && <section className="source-status"><div className="source-status-heading"><div><span className="workspace-kicker">SOURCE HEALTH</span><p>{sources.filter((source) => source.status === "ok").length} of {sources.length} sources returned event listings.</p></div><small>Organizer pages may restrict automated access or omit public event data.</small></div><div className="source-status-grid">{sources.map((source) => <article className={`source-status-item source-${source.status}`} key={source.id}><div><b>{source.id}</b><i>{sourceStatusLabel(source)}</i></div><span>{source.eventCount} events found</span><small>{sourceStatusMessage(source)}</small></article>)}</div></section>}
       <div className="hackathon-grid">{filteredEvents.map((event) => {
         const isInterested = syncedInterestedSlugs.has(event.slug);
-        return <article className={`workspace-event event-${eventColor(event)}`} key={event.slug}><div className="workspace-event-top"><span>{event.categories[0]?.toUpperCase() ?? event.source.toUpperCase()} · {event.source.toUpperCase()}</span><button disabled={!signedIn} aria-label={`${isInterested ? "Unsave" : "Save"} ${event.name}`} className={isInterested ? "saved" : ""} onClick={() => void toggle(event.slug, isInterested)}><Heart size={17} fill={isInterested ? "currentColor" : "none"} /></button></div><div className="workspace-event-symbol">✳</div><h2>{event.name}</h2><p className="workspace-event-description">{event.description || "Open the organizer’s page for event details."}</p><div className="event-details"><span><CalendarDays size={14} /> {eventDate(event.startDate)}{event.endDate ? ` – ${eventDate(event.endDate)}` : ""}</span><span><MapPin size={14} /> {[event.format === "in-person" ? "In person" : event.format, event.city, event.region, event.country].filter(Boolean).join(" · ") || "Location not listed"}</span><span><Trophy size={14} /> {event.prize || "Prize details not listed"}</span>{event.registrationDeadline && <span>Registration deadline: {eventDate(event.registrationDeadline)}</span>}</div><div className="event-registration"><a href={event.registrationUrl} target="_blank" rel="noreferrer">OFFICIAL EVENT PAGE <ArrowUpRight size={14} /></a>{signedIn && <button className={isInterested ? "registered-button" : "event-register"} onClick={() => void toggle(event.slug, isInterested)}>{isInterested ? "INTERESTED" : "MARK INTEREST"} <ArrowUpRight size={14} /></button>}</div></article>;
+        return (
+          <article className={`workspace-event event-${eventColor(event)}`} key={event.slug}>
+            <div className="workspace-event-top">
+              <span>{event.categories[0]?.toUpperCase() ?? event.source.toUpperCase()} · {event.source.toUpperCase()}</span>
+              <button disabled={!signedIn} aria-label={`${isInterested ? "Unsave" : "Save"} ${event.name}`} className={isInterested ? "saved" : ""} onClick={() => void toggle(event.slug, isInterested)}>
+                <Heart size={17} fill={isInterested ? "currentColor" : "none"} />
+              </button>
+            </div>
+            <div className="workspace-event-symbol">✳</div>
+            <h2>{event.name}</h2>
+            <p className="workspace-event-description">{event.description || "Open the organizer’s page for event details."}</p>
+            {event.prize && (
+              <div className="event-prize-highlight">
+                <span><Trophy size={15} /> PRIZE POOL</span>
+                <strong>{event.prize}</strong>
+              </div>
+            )}
+            <div className="event-details">
+              <span><CalendarDays size={14} /> {eventDate(event.startDate)}{event.endDate ? ` – ${eventDate(event.endDate)}` : ""}</span>
+              <span><MapPin size={14} /> {[event.format === "in-person" ? "In person" : event.format, event.city, event.region, event.country].filter(Boolean).join(" · ") || "Location not listed"}</span>
+              <span><UsersRound size={14} /> Team size: {event.teamSize || "Not listed"}</span>
+              {!event.prize && <span><Trophy size={14} /> Prize pool not listed</span>}
+              {event.registrationDeadline && <span>Registration deadline: {eventDate(event.registrationDeadline)}</span>}
+            </div>
+            <div className="event-registration">
+              <a href={event.registrationUrl} target="_blank" rel="noreferrer">OFFICIAL EVENT PAGE <ArrowUpRight size={14} /></a>
+              {signedIn && <button className={isInterested ? "registered-button" : "event-register"} onClick={() => void toggle(event.slug, isInterested)}>
+                {isInterested ? "INTERESTED" : "MARK INTEREST"} <ArrowUpRight size={14} />
+              </button>}
+            </div>
+          </article>
+        );
       })}</div>
       {!filteredEvents.length && <div className="empty-search">{interestedOnly ? "No hackathons marked as interested yet. Mark an event as interested to save it here." : eventsList.length ? "No hackathons match these filters." : sources.length ? "No hackathons are available in the catalog yet. The latest source checks found no safely extractable listings; some sites timed out, restricted automated access, or did not expose event details. This is a source-access issue, not a filter setting." : "No event listings have been ingested yet. Run the local crawler to check the sources."}</div>}
       {error && <p className="assistant-feedback" role="status">{error}</p>}

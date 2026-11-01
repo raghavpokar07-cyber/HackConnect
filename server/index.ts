@@ -1511,7 +1511,8 @@ app.get("/api/hackathons/catalog", requireDatabase, async (_request, response) =
       endDate: event.endDate?.toISOString() ?? null,
       registrationDeadline: event.registrationDeadline?.toISOString() ?? null,
       registrationUrl: event.registrationUrl,
-      prize: event.prize,
+      teamSize: event.teamSize ?? "",
+      prize: event.prize ?? "",
       lastSeenAt: event.lastSeenAt.toISOString(),
     })),
   });

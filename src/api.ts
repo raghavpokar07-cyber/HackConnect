@@ -33,6 +33,7 @@ export type HackathonEvent = {
   endDate: string | null;
   registrationDeadline: string | null;
   registrationUrl: string;
+  teamSize: string;
   prize: string;
   lastSeenAt: string;
 };
@@ -722,7 +723,8 @@ export function getHackathonCatalog() {
         !(typeof item.startDate === "string" || item.startDate === null) ||
         !(typeof item.endDate === "string" || item.endDate === null) ||
         !(typeof item.registrationDeadline === "string" || item.registrationDeadline === null) ||
-        typeof item.registrationUrl !== "string" || typeof item.prize !== "string" ||
+        typeof item.registrationUrl !== "string" || typeof item.teamSize !== "string" ||
+        typeof item.prize !== "string" ||
         typeof item.lastSeenAt !== "string") throw new Error("Invalid hackathon event.");
       return {
         id: item.id,
@@ -740,6 +742,7 @@ export function getHackathonCatalog() {
         endDate: item.endDate,
         registrationDeadline: item.registrationDeadline,
         registrationUrl: item.registrationUrl,
+        teamSize: item.teamSize,
         prize: item.prize,
         lastSeenAt: item.lastSeenAt,
       };

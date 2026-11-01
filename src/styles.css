@@ -889,6 +889,10 @@ a:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid 
 .workspace-event-symbol { flex: 0 0 68px; justify-items: start; font-size: 62px; line-height: 1; }
 .workspace-event h2 { margin: 5px 0 8px; font-size: clamp(22px, 2vw, 29px); line-height: 1.12; letter-spacing: -.04em; overflow-wrap: anywhere; }
 .workspace-event-description { min-height: 42px; margin: 0 0 12px; color: #35392f; font-size: 12px; line-height: 1.5; }
+.event-prize-highlight { position: relative; display: grid; gap: 7px; overflow: hidden; margin: 4px 0 8px; padding: 14px 16px; border: 1px solid #718a32; background: linear-gradient(115deg, #e8f7c8, #d5f39e 58%, #c7ed82); box-shadow: 3px 3px 0 #11120f; }
+.event-prize-highlight::after { content: ""; position: absolute; width: 96px; height: 96px; top: -50px; right: -24px; border: 1px solid #68833238; border-radius: 50%; box-shadow: 0 0 0 9px #6883320d, 0 0 0 19px #6883320a; }
+.event-prize-highlight > span { display: flex; align-items: center; gap: 7px; color: #526532; font: 9px var(--mono); letter-spacing: .12em; }
+.event-prize-highlight > strong { position: relative; z-index: 1; color: #19200f; font-size: clamp(22px, 2.4vw, 32px); font-weight: 700; line-height: 1.1; letter-spacing: -.045em; overflow-wrap: anywhere; text-shadow: 0 1px #ffffff8a; }
 .event-details { gap: 9px; padding: 12px 0; }
 .event-details span { align-items: flex-start; font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
 .event-details svg { flex: 0 0 15px; margin-top: 1px; }

@@ -18,6 +18,7 @@ export interface HackathonRecord {
   endDate?: Date;
   registrationDeadline?: Date;
   registrationUrl: string;
+  teamSize: string;
   prize: string;
   active: boolean;
   lastSeenAt: Date;
@@ -46,6 +47,7 @@ const hackathonSchema = new Schema<HackathonRecord>(
     endDate: { type: Date },
     registrationDeadline: { type: Date },
     registrationUrl: { type: String, required: true, maxlength: 2048 },
+    teamSize: { type: String, maxlength: 80, default: "" },
     prize: { type: String, maxlength: 300, default: "" },
     active: { type: Boolean, default: true },
     lastSeenAt: { type: Date, required: true, default: Date.now },

@@ -21,9 +21,15 @@ async function crawlOnce(sources = hackathonSources): Promise<void> {
     try {
       const { events } = await fetchHackathonSource(source);
       for (const event of events) {
+        const { teamSize, prize, ...eventFields } = event;
+        const update = {
+          ...eventFields,
+          ...(teamSize ? { teamSize } : {}),
+          ...(prize ? { prize } : {}),
+        };
         const previous = await Hackathon.findOneAndUpdate(
           { source: event.source, sourceId: event.sourceId },
-          { $set: event },
+          { $set: update },
           { upsert: true, returnDocument: "before", runValidators: true },
         );
         if (!previous) await notifyMatchingUsers(event);

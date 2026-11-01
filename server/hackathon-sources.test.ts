@@ -10,6 +10,10 @@ test("parses safe JSON-LD events and keeps source data", () => {
     description: "A student hackathon.",
     category: ["Civic tech", "AI"],
     eventAttendanceMode: "https://schema.org/OnlineEventAttendanceMode",
+    additionalProperty: [
+      { "@type": "PropertyValue", name: "Team size", value: "2-4 members" },
+      { "@type": "PropertyValue", name: "Prize pool", value: "$5,000" },
+    ],
     startDate: "2026-07-12T09:00:00Z",
     endDate: "2026-07-13T17:00:00Z",
     offersValidFrom: "2026-06-01T00:00:00Z",
@@ -25,6 +29,20 @@ test("parses safe JSON-LD events and keeps source data", () => {
   assert.equal(event.categories.join(", "), "Civic tech, AI");
   assert.equal(event.registrationDeadline, undefined);
   assert.equal(event.registrationUrl, "https://events.example.test/challenge-42");
+  assert.equal(event.teamSize, "2-4 members");
+  assert.equal(event.prize, "$5,000");
+});
+
+test("does not invent team size or prize when sources omit them", () => {
+  const html = `<script type="application/ld+json">${JSON.stringify({
+    "@type": "Event",
+    name: "Build Something",
+    url: "https://example.test/build",
+  })}</script>`;
+  const [event] = parseJsonLdEvents(html, "test-source");
+  assert.ok(event);
+  assert.equal(event.teamSize, "");
+  assert.equal(event.prize, "");
 });
 
 test("does not accept unsafe registration URLs or unrelated schema objects", () => {
@@ -56,6 +74,8 @@ test("parses verified upcoming Devfolio events and skips stale or invalid record
           starts_at: "2026-11-14T07:30:00Z",
           ends_at: "2026-11-15T07:30:00Z",
           is_online: false,
+          team_size: { min: 2, max: 5 },
+          prize_pool: "$10,000",
           themes: [{ theme: { name: "AI" } }],
           settings: { reg_ends_at: "2026-11-10T12:00:00Z" },
         },
@@ -84,6 +104,8 @@ test("parses verified upcoming Devfolio events and skips stale or invalid record
   assert.equal(events[0].registrationDeadline?.toISOString(), "2026-11-10T12:00:00.000Z");
   assert.equal(events[0].format, "in-person");
   assert.deepEqual(events[0].categories, ["AI"]);
+  assert.equal(events[0].teamSize, "2-5");
+  assert.equal(events[0].prize, "$10,000");
 });
 
 test("rejects malformed Devfolio API responses", () => {
