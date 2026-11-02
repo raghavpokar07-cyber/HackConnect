@@ -2,8 +2,8 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "https://hackconnect-backend-1m62.onrender.com/api/$1"
+      "source": "/api/:path*",
+      "destination": "https://hackconnect-backend-1m62.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",
