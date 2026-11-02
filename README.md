@@ -75,6 +75,7 @@ Add your own test account from the signup page as usual. Do not seed demo data i
 ### Environment setup
 
 - **MongoDB Atlas:** Use an existing cluster, a dedicated least-privilege database user, and an IP access-list entry. Put the complete Atlas connection string in `MONGODB_URI`, replace the username/password placeholders, and include `/hackconnect` as the database name before the query string.
+- **Web origins:** Set `WEB_ORIGIN` to the exact Vercel site origin. Multiple allowed origins can be comma-separated, without spaces.
 - **Session signing:** Set `JWT_SECRET` to a random secret of at least 32 characters. Generate one with `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`.
 - **Google sign-in (optional):** Create a Google OAuth client ID for a web application and add the exact local origin you use, such as `http://localhost:5173` and/or `http://127.0.0.1:5173`, as authorized JavaScript origins. Put the client ID in both `GOOGLE_CLIENT_ID` and `VITE_GOOGLE_CLIENT_ID`. The client ID is public; do not put a Google client secret in the frontend.
 - **Gemini sidekick:** Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/apikey) and set `GEMINI_API_KEY`. The key stays on the server; never use a `VITE_` prefix for it. The free tier has model and rate limits, is not unlimited, and may use submitted content to improve Google products. Do not send sensitive/private team information to the free-tier model.

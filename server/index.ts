@@ -72,7 +72,7 @@ if (config.isProduction) {
 app.use(helmet());
 app.use(
   cors({
-    origin: config.webOrigin,
+    origin: config.webOrigins,
     credentials: true,
   }),
 );
@@ -85,14 +85,14 @@ app.use((request, response, next) => {
   }
 
   const origin = request.get("origin");
-  if (origin && origin !== config.webOrigin) {
+  if (origin && !config.webOrigins.includes(origin)) {
     response.status(403).json({ error: "Request origin is not allowed." });
     return;
   }
   const referer = request.get("referer");
   if (!origin && referer) {
     try {
-      if (new URL(referer).origin !== config.webOrigin) {
+      if (!config.webOrigins.includes(new URL(referer).origin)) {
         response.status(403).json({ error: "Request origin is not allowed." });
         return;
       }

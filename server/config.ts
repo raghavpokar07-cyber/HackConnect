@@ -6,9 +6,15 @@ const optionalValue = z.preprocess(
   z.string().optional(),
 );
 
+const webOrigins = z
+  .string()
+  .default("https://your-project.vercel.app")
+  .transform((value) => value.split(",").map((origin) => origin.trim().replace(/\/+$/, "")))
+  .pipe(z.array(z.string().url()).min(1));
+
 const configSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
-  WEB_ORIGIN: z.string().url().default("https://your-project.vercel.app").transform((val) => val.replace(/\/+$/, "")),
+  WEB_ORIGIN: webOrigins,
   MONGODB_URI: optionalValue,
   JWT_SECRET: z.preprocess(
     (value) => (value === "" ? undefined : value),
@@ -30,7 +36,7 @@ if (!result.success) {
 
 export const config = {
   port: result.data.PORT,
-  webOrigin: result.data.WEB_ORIGIN,
+  webOrigins: result.data.WEB_ORIGIN,
   mongoUri: result.data.MONGODB_URI,
   jwtSecret: result.data.JWT_SECRET,
   googleClientId: result.data.GOOGLE_CLIENT_ID,
