@@ -2,6 +2,8 @@
 
 HackConnect is a collaboration platform concept for students who want to meet teammates, discover hackathons, and build projects together.
 
+Live app: [HackConnect — Find your people](https://hack-connect-raghavpokar07-cyber.vercel.app/)
+
 ## Current implementation
 
 The app includes a responsive landing page and workspace pages for discovery, connections, teams/tasks, team messages, hackathon saves/interests, notifications, profiles, achievements, and reputation. Profile, connection, team, task, message, saved-event, achievement, review, and notification changes use authenticated MongoDB API routes. Event cards read a shared MongoDB catalog populated by the local crawler; event registration remains on the organizer’s website.
