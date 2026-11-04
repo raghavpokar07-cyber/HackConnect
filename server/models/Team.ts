@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Schema, model, type HydratedDocument, type Types } from "mongoose";
 
 export interface TeamMember {
@@ -6,6 +7,7 @@ export interface TeamMember {
 }
 
 export interface TeamTask {
+  publicId: string;
   _id?: Types.ObjectId;
   title: string;
   assigneeId?: Types.ObjectId;
@@ -13,6 +15,7 @@ export interface TeamTask {
 }
 
 export interface TeamRecord {
+  publicId: string;
   name: string;
   idea: string;
   hackathon: string;
@@ -23,6 +26,7 @@ export interface TeamRecord {
 
 const teamSchema = new Schema<TeamRecord>(
   {
+    publicId: { type: String, required: true, default: () => randomUUID() },
     name: { type: String, required: true, trim: true, maxlength: 100 },
     idea: { type: String, required: true, trim: true, maxlength: 3000 },
     hackathon: { type: String, trim: true, maxlength: 120, default: "" },
@@ -36,6 +40,7 @@ const teamSchema = new Schema<TeamRecord>(
     ],
     tasks: [
       {
+        publicId: { type: String, required: true, default: () => randomUUID() },
         title: { type: String, required: true, trim: true, maxlength: 240 },
         assigneeId: { type: Schema.Types.ObjectId, ref: "User" },
         completed: { type: Boolean, default: false },
@@ -46,6 +51,7 @@ const teamSchema = new Schema<TeamRecord>(
 );
 
 teamSchema.index({ "members.userId": 1, updatedAt: -1 });
+teamSchema.index({ publicId: 1 }, { unique: true, sparse: true });
 
 export type TeamDocument = HydratedDocument<TeamRecord>;
 

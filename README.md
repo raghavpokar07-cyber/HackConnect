@@ -50,7 +50,7 @@ For automatic refresh every six hours, run `npm run crawler:watch` in a separate
 
 Source access and page formats vary. The crawler records per-source health and may report blocked/error states or no extractable events. It only uses public pages it can access, allows a single HTTPS redirect to a pre-approved source host, and does not bypass login pages, 403 responses, rate limits, or anti-bot controls. Team size and prize pool are shown only when explicitly available in source data; missing values are not guessed. Catalog records are extracted data, not organizer verification; dates, team sizes, prizes, and registration links can change. Users must verify event details and register with the organizer.
 
-Profiles are public by default; a single profile-visibility setting hides a private profile from discovery and profile lookup. Opening a public builder goes to a separate profile page with their shared details and public certificates; a private profile page shows only public ratings. The API does not return private profile fields or certificates on that page. Public ratings remain available regardless of profile visibility. Users can optionally save format/category/destination preferences for new-hackathon notifications. Connection, team, message, and rating activity is delivered in the in-app Notifications page. Operational errors are not broadcast as notifications.
+Profiles are public by default; a single profile-visibility setting hides a private profile from discovery and profile lookup. Opening a public builder goes to a separate profile page with their shared details, public ratings, and public certificates. Private profiles do not expose ratings or certificates. The API does not return private profile fields on profile pages. Users can optionally save format/category/destination preferences for new-hackathon notifications. Connection, team, message, and rating activity is delivered in the in-app Notifications page. Operational errors are not broadcast as notifications.
 
 All unsafe API requests require a signed double-submit CSRF token and reject an unapproved `Origin`/`Referer`. The SPA fetches `/api/auth/csrf` automatically and sends the token in `X-CSRF-Token`. Local API clients should first GET `/api/auth/csrf`, retain its cookie in their cookie jar, and send the returned value in that header with each POST, PUT, PATCH, or DELETE request. Clients without an `Origin` header are supported when they supply the token and cookie.
 
@@ -71,6 +71,18 @@ npm run db:seed:demo -- --confirm-dev-database
 The script refuses to run in production, does not overwrite existing accounts, and generates a random password for each newly created test account. Copy the credentials from the terminal output; passwords are not stored in the repository or printed again on later runs. Use these accounts only in a development database. The test email domains are reserved, so they cannot receive mail.
 
 Add your own test account from the signup page as usual. Do not seed demo data in the database used for real users.
+
+### Public API identifiers
+
+The API uses random UUIDv4 identifiers for users, teams, tasks, achievements, connections, messages, notifications, ratings, and hackathon records. MongoDB ObjectIds remain internal for database relationships and are not intended to be used as API identifiers. UUIDs make IDs harder to enumerate; they do not grant access. Private API operations still require a valid session and the appropriate owner/team-member check.
+
+Before deploying this version against an existing database, take a database backup and run the one-time backfill against that database:
+
+```powershell
+npm run db:migrate:public-ids
+```
+
+The command requires `MONGODB_URI` and assigns UUIDs to existing records and embedded tasks. Run it before deploying the API/client changes so every existing record has a public ID. Existing sessions use the previous identifier format and users will need to sign in again after deployment.
 
 ### Environment setup
 

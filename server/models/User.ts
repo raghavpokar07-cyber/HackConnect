@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { Schema, model, type HydratedDocument } from "mongoose";
 
 export type AuthProvider = "email" | "google";
 
 export interface UserRecord {
+  publicId: string;
   fullName: string;
   email: string;
   username?: string;
@@ -35,6 +37,7 @@ export interface UserRecord {
 
 const userSchema = new Schema<UserRecord>(
   {
+    publicId: { type: String, required: true, default: () => randomUUID() },
     fullName: { type: String, required: true, trim: true, maxlength: 80 },
     email: { type: String, required: true, trim: true, lowercase: true },
     username: { type: String, trim: true, lowercase: true, maxlength: 30 },
@@ -72,6 +75,7 @@ const userSchema = new Schema<UserRecord>(
 );
 
 userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ publicId: 1 }, { unique: true, sparse: true });
 userSchema.index({ username: 1 }, { unique: true, sparse: true });
 userSchema.index({ googleId: 1 }, { unique: true, sparse: true });
 
@@ -81,7 +85,7 @@ export const User = model<UserRecord>("User", userSchema);
 
 export function toPublicUser(user: UserDocument) {
   return {
-    id: user._id.toString(),
+    id: user.publicId,
     fullName: user.fullName,
     email: user.email,
     username: user.username ?? null,
@@ -97,7 +101,7 @@ export function toPublicUser(user: UserDocument) {
 
 export function toPublicProfile(user: UserDocument) {
   return {
-    id: user._id.toString(),
+    id: user.publicId,
     fullName: user.fullName,
     username: user.username ?? null,
     avatarUrl: user.avatarUrl ?? null,

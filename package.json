@@ -16,6 +16,7 @@
     "crawler:hackathons": "tsx server/crawl-hackathons.ts",
     "crawler:watch": "tsx server/crawl-hackathons.ts --watch",
     "db:seed:demo": "tsx server/seed-demo.ts",
+    "db:migrate:public-ids": "tsx server/migrate-public-ids.ts",
     "test:security": "tsx --test server/security.test.ts",
     "test:hackathon-sources": "tsx --test server/hackathon-sources.test.ts"
   },

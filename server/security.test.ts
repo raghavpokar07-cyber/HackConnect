@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import sharp from "sharp";
 import { normalizeCertificateImage } from "./certificate-image.js";
+import { createPublicId, isPublicId } from "./public-id.js";
 import {
   createCsrfToken,
   decryptTotpSecret,
@@ -44,6 +45,16 @@ test("CSRF tokens are signed and reject modified or unsigned values", () => {
   assert.equal(verifyCsrfToken(token, key), true);
   assert.equal(verifyCsrfToken(`${token}x`, key), false);
   assert.equal(verifyCsrfToken("attacker-controlled", key), false);
+});
+
+test("public identifiers are random UUIDv4 values and reject MongoDB ObjectIds", () => {
+  const first = createPublicId();
+  const second = createPublicId();
+  assert.match(first, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  assert.notEqual(first, second);
+  assert.equal(isPublicId(first), true);
+  assert.equal(isPublicId("507f1f77bcf86cd799439011"), false);
+  assert.equal(isPublicId("not-an-id"), false);
 });
 
 test("certificate photos are fully decoded and normalized to WebP", async () => {

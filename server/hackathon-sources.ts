@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { HackathonFormat, HackathonRecord } from "./models/Hackathon.js";
+import type { HackathonFormat, HackathonInput } from "./models/Hackathon.js";
 
 export interface HackathonSource {
   id: string;
@@ -9,7 +9,7 @@ export interface HackathonSource {
 
 export interface SourceFetchResult {
   source: HackathonSource;
-  events: Omit<HackathonRecord, "createdAt" | "updatedAt">[];
+  events: HackathonInput[];
 }
 
 const DEVFOLIO_GRAPHQL_URL = "https://api.devfolio.co/v1/graphql";
@@ -202,7 +202,7 @@ function collectEvents(value: unknown, output: JsonRecord[]) {
   }
 }
 
-export function parseJsonLdEvents(html: string, sourceId: string): Omit<HackathonRecord, "createdAt" | "updatedAt">[] {
+export function parseJsonLdEvents(html: string, sourceId: string): HackathonInput[] {
   const output: JsonRecord[] = [];
   const scripts = html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script\s*>/gi);
   for (const match of scripts) {
@@ -255,7 +255,7 @@ export function parseJsonLdEvents(html: string, sourceId: string): Omit<Hackatho
 export function parseMlhEvents(
   html: string,
   now = new Date(),
-): Omit<HackathonRecord, "createdAt" | "updatedAt">[] {
+): HackathonInput[] {
   const script = html.match(
     /<script\b(?=[^>]*\bdata-page=["']app["'])(?=[^>]*\btype=["']application\/json["'])[^>]*>([\s\S]*?)<\/script\s*>/i,
   );
@@ -331,7 +331,7 @@ export function parseMlhEvents(
 export function parseDevfolioEvents(
   payload: unknown,
   now = new Date(),
-): Omit<HackathonRecord, "createdAt" | "updatedAt">[] {
+): HackathonInput[] {
   if (!isRecord(payload) || (Array.isArray(payload.errors) && payload.errors.length > 0)) {
     throw new Error("Devfolio returned an invalid event response.");
   }
@@ -493,7 +493,7 @@ export async function fetchHackathonSource(source: HackathonSource): Promise<Sou
 export async function extractEventsWithOllama(
   html: string,
   source: HackathonSource,
-): Promise<Omit<HackathonRecord, "createdAt" | "updatedAt">[]> {
+): Promise<HackathonInput[]> {
   const model = process.env.OLLAMA_MODEL?.trim() || "qwen2.5:7b-instruct";
   const links = [...html.matchAll(/<a\b[^>]*href=["'](https?:\/\/[^"'<> ]+)["'][^>]*>([\s\S]*?)<\/a\s*>/gi)]
     .map((match) => ({

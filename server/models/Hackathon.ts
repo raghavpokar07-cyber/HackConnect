@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { Schema, model, type HydratedDocument } from "mongoose";
 
 export type HackathonFormat = "online" | "in-person" | "hybrid" | "unknown";
 
 export interface HackathonRecord {
+  publicId: string;
   source: string;
   sourceId: string;
   slug: string;
@@ -26,8 +28,14 @@ export interface HackathonRecord {
   updatedAt?: Date;
 }
 
+export type HackathonInput = Omit<
+  HackathonRecord,
+  "publicId" | "createdAt" | "updatedAt"
+>;
+
 const hackathonSchema = new Schema<HackathonRecord>(
   {
+    publicId: { type: String, required: true, default: () => randomUUID() },
     source: { type: String, required: true, maxlength: 40 },
     sourceId: { type: String, required: true, maxlength: 300 },
     slug: { type: String, required: true, unique: true, maxlength: 80 },
@@ -56,6 +64,7 @@ const hackathonSchema = new Schema<HackathonRecord>(
 );
 
 hackathonSchema.index({ source: 1, sourceId: 1 }, { unique: true });
+hackathonSchema.index({ publicId: 1 }, { unique: true, sparse: true });
 hackathonSchema.index({ active: 1, startDate: 1 });
 hackathonSchema.index({ format: 1, city: 1, startDate: 1 });
 hackathonSchema.index({ categories: 1 });

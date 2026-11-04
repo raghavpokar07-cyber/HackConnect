@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Schema, model, type HydratedDocument, type Types } from "mongoose";
 
 export type NotificationType =
@@ -10,6 +11,7 @@ export type NotificationType =
   | "system";
 
 export interface NotificationRecord {
+  publicId: string;
   recipientId: Types.ObjectId;
   actorId?: Types.ObjectId;
   type: NotificationType;
@@ -23,6 +25,7 @@ export interface NotificationRecord {
 
 const notificationSchema = new Schema<NotificationRecord>(
   {
+    publicId: { type: String, required: true, default: () => randomUUID() },
     recipientId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     actorId: { type: Schema.Types.ObjectId, ref: "User" },
     type: {
@@ -48,6 +51,7 @@ const notificationSchema = new Schema<NotificationRecord>(
 );
 
 notificationSchema.index({ recipientId: 1, createdAt: -1 });
+notificationSchema.index({ publicId: 1 }, { unique: true, sparse: true });
 notificationSchema.index({ recipientId: 1, readAt: 1, createdAt: -1 });
 notificationSchema.index({ recipientId: 1, dedupeKey: 1 }, { unique: true });
 

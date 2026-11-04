@@ -6,7 +6,7 @@ import express, { type ErrorRequestHandler, type NextFunction } from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+import jwt, { type JwtPayload } from "jsonwebtoken";
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
 import multer from "multer";
@@ -14,6 +14,7 @@ import { z } from "zod";
 import { config } from "./config.js";
 import { Achievement, type AchievementDocument } from "./models/Achievement.js";
 import { normalizeCertificateImage } from "./certificate-image.js";
+import { isPublicId } from "./public-id.js";
 import { Connection } from "./models/Connection.js";
 import { Hackathon } from "./models/Hackathon.js";
 import { HackathonSourceStatus } from "./models/HackathonSourceStatus.js";
@@ -54,6 +55,7 @@ class HttpError extends Error {
 const app = express();
 const cookieName = "hackconnect_session";
 const csrfCookieName = "hackconnect_csrf";
+let publicIdsReady = false;
 const sessionDurationMs = 7 * 24 * 60 * 60 * 1000;
 const uploadLimitBytes = 5 * 1024 * 1024;
 const maxAchievementsPerUser = 25;
@@ -162,6 +164,8 @@ const registrationSchema = z.object({
   password: z.string().min(8).max(72),
 });
 
+const publicIdSchema = z.string().refine(isPublicId);
+
 const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(254),
   password: z.string().min(1).max(72),
@@ -196,7 +200,7 @@ const profileSchema = z.object({
 });
 
 const connectionSchema = z.object({
-  recipientId: z.string().regex(/^[a-f\d]{24}$/i),
+  recipientId: publicIdSchema,
 });
 
 const teamSchema = z.object({
@@ -207,11 +211,11 @@ const teamSchema = z.object({
 
 const taskSchema = z.object({
   title: z.string().trim().min(1).max(240),
-  assigneeId: z.string().regex(/^[a-f\d]{24}$/i).optional(),
+  assigneeId: publicIdSchema.optional(),
 });
 
 const teamMemberSchema = z.object({
-  userId: z.string().regex(/^[a-f\d]{24}$/i),
+  userId: publicIdSchema,
   role: z.string().trim().min(1).max(80).default("Builder"),
 });
 
@@ -224,8 +228,8 @@ const messageSchema = z.object({
 });
 
 const ratingSchema = z.object({
-  revieweeId: z.string().regex(/^[a-f\d]{24}$/i),
-  teamId: z.string().regex(/^[a-f\d]{24}$/i),
+  revieweeId: publicIdSchema,
+  teamId: publicIdSchema,
   score: z.number().int().min(1).max(5),
   comment: z.string().trim().max(1000).default(""),
 });
@@ -293,39 +297,48 @@ function getRouteParam(request: Request, name: string): string {
   return value;
 }
 
+function getMappedPublicId(ids: Map<string, string>, internalId: string, resource: string): string {
+  const publicId = ids.get(internalId);
+  if (!publicId) throw new HttpError(500, `Could not resolve the public ID for ${resource}.`);
+  return publicId;
+}
+
 async function findMemberTeam(teamId: string, userId: string) {
-  if (!mongoose.isValidObjectId(teamId)) {
-    throw new HttpError(404, "Team not found.");
-  }
-  const team = await Team.findOne({ _id: teamId, "members.userId": userId });
+  if (!publicIdSchema.safeParse(teamId).success) throw new HttpError(404, "Team not found.");
+  const team = await Team.findOne({ publicId: teamId, "members.userId": userId });
   if (!team) {
     throw new HttpError(404, "Team not found.");
   }
   return team;
 }
 
-function serializeTeam(team: TeamDocument) {
+async function serializeTeam(team: TeamDocument) {
+  const memberIds = [team.ownerId.toString(), ...team.members.map((member) => member.userId.toString())];
+  const users = await User.find({ _id: { $in: memberIds } }).select("_id publicId");
+  const publicIds = new Map(users.map((user) => [user._id.toString(), user.publicId]));
   return {
-    id: team._id.toString(),
+    id: team.publicId,
     name: team.name,
     idea: team.idea,
     hackathon: team.hackathon,
-    ownerId: team.ownerId.toString(),
+    ownerId: getMappedPublicId(publicIds, team.ownerId.toString(), "team owner"),
     members: team.members.map((member) => ({
-      userId: member.userId.toString(),
+      userId: getMappedPublicId(publicIds, member.userId.toString(), "team member"),
       role: member.role,
     })),
     tasks: team.tasks.map((task) => ({
-      id: task._id?.toString() ?? "",
+      id: task.publicId,
       title: task.title,
-      assigneeId: task.assigneeId?.toString() ?? null,
+      assigneeId: task.assigneeId
+        ? getMappedPublicId(publicIds, task.assigneeId.toString(), "task assignee")
+        : null,
       completed: task.completed,
     })),
   };
 }
 
 function serializeAchievement(achievement: AchievementDocument) {
-  const id = achievement._id.toString();
+  const id = achievement.publicId;
   return {
     id,
     title: achievement.title,
@@ -341,7 +354,26 @@ function requireDatabase(_request: Request, response: Response, next: NextFuncti
     response.status(503).json({ error: "Database is not connected yet." });
     return;
   }
+  if (!publicIdsReady) {
+    response.status(503).json({ error: "Public ID migration is required before using the API." });
+    return;
+  }
   next();
+}
+
+async function hasMissingPublicIds(): Promise<boolean> {
+  const missingTopLevelIds = await Promise.all([
+    User.exists({ publicId: { $exists: false } }),
+    Team.exists({ publicId: { $exists: false } }),
+    Achievement.exists({ publicId: { $exists: false } }),
+    Connection.exists({ publicId: { $exists: false } }),
+    Message.exists({ publicId: { $exists: false } }),
+    Notification.exists({ publicId: { $exists: false } }),
+    Rating.exists({ publicId: { $exists: false } }),
+    Hackathon.exists({ publicId: { $exists: false } }),
+  ]);
+  return missingTopLevelIds.some(Boolean) ||
+    Boolean(await Team.exists({ tasks: { $elemMatch: { publicId: { $exists: false } } } }));
 }
 
 function createSession(userId: string, response: Response) {
@@ -377,8 +409,8 @@ async function createMfaChallenge(userId: string, response: Response) {
   }
   const challengeId = randomUUID();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-  const updated = await User.findByIdAndUpdate(
-    userId,
+  const updated = await User.findOneAndUpdate(
+    { publicId: userId },
     { $set: { mfaChallengeId: challengeId, mfaChallengeExpiresAt: expiresAt } },
     { new: true },
   ).select("_id");
@@ -453,7 +485,7 @@ async function verifyReauthentication(
   }
 }
 
-function requireAuth(request: Request, _response: Response, next: NextFunction) {
+async function requireAuth(request: Request, _response: Response, next: NextFunction) {
   const token: unknown = request.cookies?.[cookieName];
   if (typeof token !== "string") {
     next(new HttpError(401, "Please sign in to continue."));
@@ -464,20 +496,36 @@ function requireAuth(request: Request, _response: Response, next: NextFunction) 
     return;
   }
 
+  let payload: JwtPayload | string;
   try {
-    const payload = jwt.verify(token, config.jwtSecret, {
+    payload = jwt.verify(token, config.jwtSecret, {
       issuer: "hackconnect-api",
       audience: "hackconnect-web",
     });
-    if (typeof payload === "string" || typeof payload.sub !== "string") {
-      next(new HttpError(401, "Your session is invalid. Please sign in again."));
-      return;
-    }
-    request.auth = { userId: payload.sub };
-    next();
   } catch {
     next(new HttpError(401, "Your session expired. Please sign in again."));
+    return;
   }
+  if (typeof payload === "string" || typeof payload.sub !== "string" ||
+      !publicIdSchema.safeParse(payload.sub).success) {
+    next(new HttpError(401, "Your session is invalid. Please sign in again."));
+    return;
+  }
+  if (mongoose.connection.readyState !== 1) {
+    next(new HttpError(503, "Database is not connected yet."));
+    return;
+  }
+  if (!publicIdsReady) {
+    next(new HttpError(503, "Public ID migration is required before using the API."));
+    return;
+  }
+  const user = await User.findOne({ publicId: payload.sub }).select("_id");
+  if (!user) {
+    next(new HttpError(401, "Your account could not be found. Please sign in again."));
+    return;
+  }
+  request.auth = { userId: user._id.toString() };
+  next();
 }
 
 function sendValidationError(response: Response, error: z.ZodError) {
@@ -493,8 +541,9 @@ function sendValidationError(response: Response, error: z.ZodError) {
 app.get("/api/health", (_request, response) => {
   response.json({
     status: "ok",
-    ready: mongoose.connection.readyState === 1,
+    ready: mongoose.connection.readyState === 1 && publicIdsReady,
     database: mongoose.connection.readyState === 1 ? "connected" : "not connected",
+    publicIdsMigrated: publicIdsReady,
     integrations: {
       google: Boolean(config.googleClientId),
       gemini: Boolean(config.geminiApiKey),
@@ -547,7 +596,7 @@ app.post("/api/auth/register", authRateLimit, requireDatabase, async (request, r
       emailVerified: false,
       skills: [],
     });
-    createSession(user._id.toString(), response);
+    createSession(user.publicId, response);
     response.status(201).json({ user: toPublicUser(user) });
   } catch (error) {
     if (isDuplicateKeyError(error)) {
@@ -573,10 +622,10 @@ app.post("/api/auth/login", authRateLimit, requireDatabase, async (request, resp
   }
 
   if (user.mfaEnabled) {
-    await createMfaChallenge(user._id.toString(), response);
+    await createMfaChallenge(user.publicId, response);
     return;
   }
-  createSession(user._id.toString(), response);
+  createSession(user.publicId, response);
   response.json({ user: toPublicUser(user) });
 });
 
@@ -640,10 +689,10 @@ app.post("/api/auth/google", authRateLimit, requireDatabase, async (request, res
   }
 
   if (user.mfaEnabled) {
-    await createMfaChallenge(user._id.toString(), response);
+    await createMfaChallenge(user.publicId, response);
     return;
   }
-  createSession(user._id.toString(), response);
+  createSession(user.publicId, response);
   response.json({ user: toPublicUser(user) });
 });
 
@@ -654,7 +703,7 @@ app.post("/api/auth/mfa/verify", authRateLimit, requireDatabase, async (request,
     return;
   }
   const { userId, challengeId } = verifyMfaChallenge(result.data.challengeToken);
-  const user = await User.findById(userId).select("+mfaSecret");
+  const user = await User.findOne({ publicId: userId }).select("+mfaSecret");
   if (!user?.mfaEnabled || !user.mfaSecret || !config.jwtSecret) {
     throw new HttpError(401, "This sign-in challenge is no longer valid. Please sign in again.");
   }
@@ -683,7 +732,7 @@ app.post("/api/auth/mfa/verify", authRateLimit, requireDatabase, async (request,
   ).select("_id");
   if (!consumed) throw new HttpError(401, "The authenticator code is invalid or has already been used.");
 
-  createSession(user._id.toString(), response);
+  createSession(user.publicId, response);
   response.json({ user: toPublicUser(user) });
 });
 
@@ -888,11 +937,12 @@ app.get(
   requireDatabase,
   async (request, response) => {
   const userId = getRouteParam(request, "userId");
-  if (!mongoose.isValidObjectId(userId)) throw new HttpError(404, "Profile not found.");
-  if (!(await User.exists({ _id: userId, profileVisibility: { $ne: "private" } }))) {
+  if (!publicIdSchema.safeParse(userId).success) throw new HttpError(404, "Profile not found.");
+  const user = await User.findOne({ publicId: userId, profileVisibility: { $ne: "private" } }).select("_id");
+  if (!user) {
     throw new HttpError(404, "Profile not found.");
   }
-  const achievements = await Achievement.find({ ownerId: userId, publicVisible: true })
+  const achievements = await Achievement.find({ ownerId: user._id, publicVisible: true })
     .sort({ achievedAt: -1 })
     .limit(50);
   response.json({ achievements: achievements.map(serializeAchievement) });
@@ -905,7 +955,7 @@ app.get(
   requireDatabase,
   async (request, response) => {
   const achievementId = getRouteParam(request, "achievementId");
-  if (!mongoose.isValidObjectId(achievementId)) throw new HttpError(404, "Certificate photo not found.");
+  if (!publicIdSchema.safeParse(achievementId).success) throw new HttpError(404, "Certificate photo not found.");
   const token: unknown = request.cookies?.[cookieName];
   let ownerId: string | null = null;
   if (typeof token === "string" && config.jwtSecret) {
@@ -914,12 +964,15 @@ app.get(
         issuer: "hackconnect-api",
         audience: "hackconnect-web",
       });
-      ownerId = typeof payload !== "string" && typeof payload.sub === "string" ? payload.sub : null;
+      if (typeof payload !== "string" && typeof payload.sub === "string") {
+        const owner = await User.findOne({ publicId: payload.sub }).select("_id");
+        ownerId = owner?._id.toString() ?? null;
+      }
     } catch {
       ownerId = null;
     }
   }
-  const achievement = await Achievement.findById(achievementId).select("+image");
+  const achievement = await Achievement.findOne({ publicId: achievementId }).select("+image");
   if (!achievement) throw new HttpError(404, "Certificate photo not found.");
   const isOwner = ownerId === achievement.ownerId.toString();
   const isPublicProfile = achievement.publicVisible && Boolean(await User.exists({
@@ -947,9 +1000,9 @@ app.patch(
       return;
     }
     const achievementId = getRouteParam(request, "achievementId");
-    if (!mongoose.isValidObjectId(achievementId)) throw new HttpError(404, "Achievement not found.");
+    if (!publicIdSchema.safeParse(achievementId).success) throw new HttpError(404, "Achievement not found.");
     const achievement = await Achievement.findOneAndUpdate(
-      { _id: achievementId, ownerId: getUserId(request) },
+      { publicId: achievementId, ownerId: getUserId(request) },
       { $set: { publicVisible: result.data.publicVisible } },
       { new: true, runValidators: true },
     );
@@ -965,9 +1018,9 @@ app.delete(
   requireDatabase,
   async (request, response) => {
     const achievementId = getRouteParam(request, "achievementId");
-    if (!mongoose.isValidObjectId(achievementId)) throw new HttpError(404, "Achievement not found.");
+    if (!publicIdSchema.safeParse(achievementId).success) throw new HttpError(404, "Achievement not found.");
     const deleted = await Achievement.findOneAndDelete({
-      _id: achievementId,
+      publicId: achievementId,
       ownerId: getUserId(request),
     });
     if (!deleted) throw new HttpError(404, "Achievement not found.");
@@ -1002,9 +1055,9 @@ app.get("/api/users", requireAuth, requireDatabase, async (request, response) =>
 
 app.get("/api/users/:userId", requireAuth, requireDatabase, async (request, response) => {
   const userId = getRouteParam(request, "userId");
-  if (!mongoose.isValidObjectId(userId)) throw new HttpError(404, "Profile not found.");
+  if (!publicIdSchema.safeParse(userId).success) throw new HttpError(404, "Profile not found.");
   const user = await User.findOne({
-    _id: userId,
+    publicId: userId,
     $or: [{ profileVisibility: { $ne: "private" } }, { _id: getUserId(request) }],
   });
   if (!user) throw new HttpError(404, "Profile not found.");
@@ -1013,8 +1066,8 @@ app.get("/api/users/:userId", requireAuth, requireDatabase, async (request, resp
 
 app.get("/api/users/:userId/profile-page", requireAuth, requireDatabase, async (request, response) => {
   const userId = getRouteParam(request, "userId");
-  if (!mongoose.isValidObjectId(userId)) throw new HttpError(404, "Profile not found.");
-  const user = await User.findById(userId);
+  if (!publicIdSchema.safeParse(userId).success) throw new HttpError(404, "Profile not found.");
+  const user = await User.findOne({ publicId: userId });
   if (!user) throw new HttpError(404, "Profile not found.");
   const isPublic = user.profileVisibility !== "private";
   response.json({
@@ -1025,17 +1078,21 @@ app.get("/api/users/:userId/profile-page", requireAuth, requireDatabase, async (
 
 app.get("/api/users/:userId/ratings", requireDatabase, async (request, response) => {
   const userId = getRouteParam(request, "userId");
-  if (!mongoose.isValidObjectId(userId)) throw new HttpError(404, "Profile not found.");
-  if (!(await User.exists({ _id: userId }))) throw new HttpError(404, "Profile not found.");
-  const ratings = await Rating.find({ revieweeId: userId }).sort({ createdAt: -1 }).limit(100);
+  if (!publicIdSchema.safeParse(userId).success) throw new HttpError(404, "Profile not found.");
+  const profile = await User.findOne({ publicId: userId, profileVisibility: { $ne: "private" } }).select("_id");
+  if (!profile) throw new HttpError(404, "Profile not found.");
+  const ratings = await Rating.find({ revieweeId: profile._id }).sort({ createdAt: -1 }).limit(100);
   const reviewerIds = Array.from(new Set(ratings.map((rating) => rating.reviewerId.toString())));
   const reviewers = await User.find({ _id: { $in: reviewerIds }, profileVisibility: { $ne: "private" } });
   const profiles = new Map(reviewers.map((user) => [user._id.toString(), toPublicProfile(user)]));
+  const teamIds = Array.from(new Set(ratings.map((rating) => rating.teamId.toString())));
+  const teams = await Team.find({ _id: { $in: teamIds } }).select("_id publicId");
+  const publicTeamIds = new Map(teams.map((team) => [team._id.toString(), team.publicId]));
   response.json({
     ratings: ratings.map((rating) => ({
-      id: rating._id.toString(),
+      id: rating.publicId,
       reviewer: profiles.get(rating.reviewerId.toString()) ?? null,
-      teamId: rating.teamId.toString(),
+      teamId: getMappedPublicId(publicTeamIds, rating.teamId.toString(), "rated team"),
       score: rating.score,
       comment: rating.comment,
       createdAt: rating.createdAt?.toISOString() ?? "",
@@ -1054,7 +1111,7 @@ app.get("/api/notifications", requireAuth, requireDatabase, async (request, resp
   const profiles = new Map(actors.map((user) => [user._id.toString(), toPublicProfile(user)]));
   response.json({
     notifications: notifications.map((item) => ({
-      id: item._id.toString(),
+      id: item.publicId,
       type: item.type,
       title: item.title,
       body: item.body,
@@ -1079,14 +1136,14 @@ app.patch(
       return;
     }
     const notificationId = getRouteParam(request, "notificationId");
-    if (!mongoose.isValidObjectId(notificationId)) throw new HttpError(404, "Notification not found.");
+    if (!publicIdSchema.safeParse(notificationId).success) throw new HttpError(404, "Notification not found.");
     const notification = await Notification.findOneAndUpdate(
-      { _id: notificationId, recipientId: getUserId(request) },
+      { publicId: notificationId, recipientId: getUserId(request) },
       { $set: { readAt: result.data.read ? new Date() : null } },
       { returnDocument: "after", runValidators: true },
     );
     if (!notification) throw new HttpError(404, "Notification not found.");
-    response.json({ id: notification._id.toString(), readAt: notification.readAt?.toISOString() ?? null });
+    response.json({ id: notification.publicId, readAt: notification.readAt?.toISOString() ?? null });
   },
 );
 
@@ -1121,7 +1178,7 @@ app.get("/api/connections", requireAuth, requireDatabase, async (request, respon
   const profiles = new Map(users.map((user) => [user._id.toString(), toPublicProfile(user)]));
   response.json({
     connections: connections.map((connection) => ({
-      id: connection._id.toString(),
+      id: connection.publicId,
       status: connection.status,
       requester: profiles.get(connection.requesterId.toString()) ?? null,
       recipient: profiles.get(connection.recipientId.toString()) ?? null,
@@ -1137,9 +1194,10 @@ app.post("/api/connections", requireAuth, workspaceWriteRateLimit, requireDataba
     return;
   }
   const requesterId = getUserId(request);
-  const { recipientId } = result.data;
+  const recipient = await User.findOne({ publicId: result.data.recipientId }).select("_id publicId");
+  if (!recipient) throw new HttpError(404, "Profile not found.");
+  const recipientId = recipient._id.toString();
   if (requesterId === recipientId) throw new HttpError(400, "You cannot connect with yourself.");
-  if (!(await User.exists({ _id: recipientId }))) throw new HttpError(404, "Profile not found.");
 
   const existing = await Connection.findOne({
     $or: [
@@ -1158,7 +1216,8 @@ app.post("/api/connections", requireAuth, workspaceWriteRateLimit, requireDataba
     }
     throw error;
   }
-  const requester = await User.findById(requesterId).select("fullName");
+  const requester = await User.findById(requesterId).select("fullName publicId");
+  if (!requester) throw new HttpError(404, "Account not found.");
   await createNotification({
     recipientId,
     actorId: requesterId,
@@ -1170,17 +1229,17 @@ app.post("/api/connections", requireAuth, workspaceWriteRateLimit, requireDataba
   });
   response.status(201).json({
     connection: {
-      id: connection._id.toString(),
+      id: connection.publicId,
       status: connection.status,
-      requesterId,
-      recipientId,
+      requesterId: requester.publicId,
+      recipientId: recipient.publicId,
     },
   });
 });
 
 app.patch("/api/connections/:connectionId", requireAuth, workspaceWriteRateLimit, requireDatabase, async (request, response) => {
   const connectionId = getRouteParam(request, "connectionId");
-  if (!mongoose.isValidObjectId(connectionId)) {
+  if (!publicIdSchema.safeParse(connectionId).success) {
     throw new HttpError(404, "Connection request not found.");
   }
   const result = z.object({ status: z.enum(["accepted", "declined"]) }).safeParse(request.body);
@@ -1190,7 +1249,7 @@ app.patch("/api/connections/:connectionId", requireAuth, workspaceWriteRateLimit
   }
   const connection = await Connection.findOneAndUpdate(
     {
-      _id: connectionId,
+      publicId: connectionId,
       recipientId: getUserId(request),
       status: "pending",
     },
@@ -1210,16 +1269,16 @@ app.patch("/api/connections/:connectionId", requireAuth, workspaceWriteRateLimit
       dedupeKey: `connection-accepted:${connection._id.toString()}`,
     });
   }
-  response.json({ id: connection._id.toString(), status: connection.status });
+  response.json({ id: connection.publicId, status: connection.status });
 });
 
 app.delete("/api/connections/:connectionId", requireAuth, workspaceWriteRateLimit, requireDatabase, async (request, response) => {
   const connectionId = getRouteParam(request, "connectionId");
-  if (!mongoose.isValidObjectId(connectionId)) {
+  if (!publicIdSchema.safeParse(connectionId).success) {
     throw new HttpError(404, "Connection not found.");
   }
   const deleted = await Connection.findOneAndDelete({
-    _id: connectionId,
+    publicId: connectionId,
     $or: [{ requesterId: getUserId(request) }, { recipientId: getUserId(request) }],
   });
   if (!deleted) throw new HttpError(404, "Connection not found.");
@@ -1228,7 +1287,7 @@ app.delete("/api/connections/:connectionId", requireAuth, workspaceWriteRateLimi
 
 app.get("/api/teams", requireAuth, requireDatabase, async (request, response) => {
   const teams = await Team.find({ "members.userId": getUserId(request) }).sort({ updatedAt: -1 });
-  response.json({ teams: teams.map(serializeTeam) });
+  response.json({ teams: await Promise.all(teams.map(serializeTeam)) });
 });
 
 app.post("/api/teams", requireAuth, workspaceWriteRateLimit, requireDatabase, async (request, response) => {
@@ -1245,7 +1304,7 @@ app.post("/api/teams", requireAuth, workspaceWriteRateLimit, requireDatabase, as
     members: [{ userId: objectId, role: "Team lead" }],
     tasks: [],
   });
-  response.status(201).json({ team: serializeTeam(team) });
+  response.status(201).json({ team: await serializeTeam(team) });
 });
 
 app.post(
@@ -1262,15 +1321,16 @@ app.post(
 
     const teamId = getRouteParam(request, "teamId");
     const ownerId = getUserId(request);
-    if (!mongoose.isValidObjectId(teamId)) throw new HttpError(404, "Team not found.");
-    const team = await Team.findOne({ _id: teamId, ownerId });
+    if (!publicIdSchema.safeParse(teamId).success) throw new HttpError(404, "Team not found.");
+    const team = await Team.findOne({ publicId: teamId, ownerId });
     if (!team) throw new HttpError(404, "Team not found or you are not its owner.");
 
-    const memberId = new mongoose.Types.ObjectId(result.data.userId);
+    const member = await User.findOne({ publicId: result.data.userId }).select("_id");
+    if (!member) throw new HttpError(404, "Profile not found.");
+    const memberId = member._id;
     if (memberId.toString() === ownerId) {
       throw new HttpError(400, "You are already a member of this team.");
     }
-    if (!(await User.exists({ _id: memberId }))) throw new HttpError(404, "Profile not found.");
     if (team.members.some((member) => member.userId.toString() === memberId.toString())) {
       throw new HttpError(409, "This person is already on the team.");
     }
@@ -1288,7 +1348,7 @@ app.post(
 
     const updatedTeam = await Team.findOneAndUpdate(
       {
-        _id: teamId,
+        publicId: teamId,
         ownerId,
         members: { $not: { $elemMatch: { userId: memberId } } },
       },
@@ -1317,7 +1377,7 @@ app.post(
       href: "/teams",
       dedupeKey: `team-member:${updatedTeam._id.toString()}:${memberId.toString()}`,
     })));
-    response.status(201).json({ team: serializeTeam(updatedTeam) });
+    response.status(201).json({ team: await serializeTeam(updatedTeam) });
   },
 );
 
@@ -1329,17 +1389,22 @@ app.post("/api/teams/:teamId/tasks", requireAuth, workspaceWriteRateLimit, requi
   }
   const userId = getUserId(request);
   const team = await findMemberTeam(getRouteParam(request, "teamId"), userId);
-  const assigneeId = result.data.assigneeId ?? userId;
+  const assignee = result.data.assigneeId
+    ? await User.findOne({ publicId: result.data.assigneeId }).select("_id")
+    : null;
+  if (result.data.assigneeId && !assignee) throw new HttpError(404, "Profile not found.");
+  const assigneeId = assignee?._id.toString() ?? userId;
   if (!team.members.some((member) => member.userId.toString() === assigneeId)) {
     throw new HttpError(400, "Tasks can only be assigned to a team member.");
   }
   team.tasks.push({
+    publicId: randomUUID(),
     title: result.data.title,
     assigneeId: new mongoose.Types.ObjectId(assigneeId),
     completed: false,
   });
   await team.save();
-  response.status(201).json({ team: serializeTeam(team) });
+  response.status(201).json({ team: await serializeTeam(team) });
 });
 
 app.patch(
@@ -1355,11 +1420,12 @@ app.patch(
     }
     const team = await findMemberTeam(getRouteParam(request, "teamId"), getUserId(request));
     const taskId = getRouteParam(request, "taskId");
-    const task = team.tasks.find((candidate) => candidate._id?.toString() === taskId);
+    if (!publicIdSchema.safeParse(taskId).success) throw new HttpError(404, "Task not found.");
+    const task = team.tasks.find((candidate) => candidate.publicId === taskId);
     if (!task) throw new HttpError(404, "Task not found.");
     task.completed = result.data.completed;
     await team.save();
-    response.json({ team: serializeTeam(team) });
+    response.json({ team: await serializeTeam(team) });
   },
 );
 
@@ -1369,8 +1435,8 @@ app.get(
   requireDatabase,
   async (request, response) => {
     const teamId = getRouteParam(request, "teamId");
-    await findMemberTeam(teamId, getUserId(request));
-    const messages = await Message.find({ teamId })
+    const team = await findMemberTeam(teamId, getUserId(request));
+    const messages = await Message.find({ teamId: team._id })
       .sort({ createdAt: -1 })
       .limit(100);
     const senderIds = Array.from(new Set(messages.map((message) => message.senderId.toString())));
@@ -1378,7 +1444,7 @@ app.get(
     const profiles = new Map(senders.map((user) => [user._id.toString(), toPublicProfile(user)]));
     response.json({
       messages: messages.reverse().map((message) => ({
-        id: message._id.toString(),
+        id: message.publicId,
         text: message.text,
         sender: profiles.get(message.senderId.toString()) ?? null,
         createdAt: message.createdAt?.toISOString() ?? "",
@@ -1399,14 +1465,14 @@ app.post(
       return;
     }
     const userId = getUserId(request);
-    const teamId = getRouteParam(request, "teamId");
-    const team = await findMemberTeam(teamId, userId);
+    const team = await findMemberTeam(getRouteParam(request, "teamId"), userId);
     const message = await Message.create({
-      teamId: new mongoose.Types.ObjectId(teamId),
+      teamId: team._id,
       senderId: new mongoose.Types.ObjectId(userId),
       text: result.data.text,
     });
-    const sender = await User.findById(userId).select("fullName");
+    const sender = await User.findById(userId).select("fullName publicId");
+    if (!sender) throw new HttpError(404, "Account not found.");
     const otherMembers = team.members
       .map((member) => member.userId.toString())
       .filter((memberId) => memberId !== userId);
@@ -1421,9 +1487,9 @@ app.post(
     })));
     response.status(201).json({
       message: {
-        id: message._id.toString(),
+        id: message.publicId,
         text: message.text,
-        senderId: userId,
+        senderId: sender.publicId,
         createdAt: message.createdAt?.toISOString() ?? "",
       },
     });
@@ -1478,11 +1544,14 @@ app.get("/api/ratings", requireAuth, requireDatabase, async (request, response) 
   const reviewerIds = Array.from(new Set(ratings.map((rating) => rating.reviewerId.toString())));
   const reviewers = await User.find({ _id: { $in: reviewerIds } });
   const profiles = new Map(reviewers.map((user) => [user._id.toString(), toPublicProfile(user)]));
+  const teamIds = Array.from(new Set(ratings.map((rating) => rating.teamId.toString())));
+  const teams = await Team.find({ _id: { $in: teamIds } }).select("_id publicId");
+  const publicTeamIds = new Map(teams.map((team) => [team._id.toString(), team.publicId]));
   response.json({
     ratings: ratings.map((rating) => ({
-      id: rating._id.toString(),
+      id: rating.publicId,
       reviewer: profiles.get(rating.reviewerId.toString()) ?? null,
-      teamId: rating.teamId.toString(),
+      teamId: getMappedPublicId(publicTeamIds, rating.teamId.toString(), "rated team"),
       score: rating.score,
       comment: rating.comment,
       createdAt: rating.createdAt?.toISOString() ?? "",
@@ -1496,7 +1565,7 @@ app.get("/api/hackathons/catalog", requireDatabase, async (_request, response) =
     .limit(500);
   response.json({
     events: events.map((event) => ({
-      id: event._id.toString(),
+      id: event.publicId,
       slug: event.slug,
       source: event.source,
       name: event.name,
@@ -1567,16 +1636,25 @@ app.post("/api/ratings", requireAuth, workspaceWriteRateLimit, requireDatabase, 
     return;
   }
   const reviewerId = getUserId(request);
-  if (reviewerId === result.data.revieweeId) throw new HttpError(400, "You cannot rate yourself.");
+  const reviewee = await User.findOne({ publicId: result.data.revieweeId }).select("_id");
+  if (!reviewee) throw new HttpError(404, "Profile not found.");
+  const revieweeId = reviewee._id.toString();
+  if (reviewerId === revieweeId) throw new HttpError(400, "You cannot rate yourself.");
   const team = await findMemberTeam(result.data.teamId, reviewerId);
-  if (!team.members.some((member) => member.userId.toString() === result.data.revieweeId)) {
+  if (!team.members.some((member) => member.userId.toString() === revieweeId)) {
     throw new HttpError(400, "Ratings are only available for teammates.");
   }
   try {
-    const rating = await Rating.create({ ...result.data, reviewerId });
+    const rating = await Rating.create({
+      reviewerId,
+      revieweeId,
+      teamId: team._id,
+      score: result.data.score,
+      comment: result.data.comment,
+    });
     const reviewer = await User.findById(reviewerId).select("fullName");
     await createNotification({
-      recipientId: result.data.revieweeId,
+      recipientId: revieweeId,
       actorId: reviewerId,
       type: "rating",
       title: "New teammate review",
@@ -1584,7 +1662,7 @@ app.post("/api/ratings", requireAuth, workspaceWriteRateLimit, requireDatabase, 
       href: "/ratings",
       dedupeKey: `rating:${rating._id.toString()}`,
     });
-    response.status(201).json({ id: rating._id.toString() });
+    response.status(201).json({ id: rating.publicId });
   } catch (error) {
     if (isDuplicateKeyError(error)) {
       throw new HttpError(409, "You have already rated this teammate for this team.");
@@ -1674,10 +1752,13 @@ if (config.mongoUri) {
   try {
     await mongoose.connect(config.mongoUri);
     console.info("MongoDB connected.");
-    } catch (error) {
+    publicIdsReady = !(await hasMissingPublicIds());
+    if (!publicIdsReady) {
+      console.error("Public UUIDs are missing. Run npm run db:migrate:public-ids before deploying.");
+    }
+  } catch (error) {
     console.error("MongoDB connection failed:", error);
   }
-
 } else {
   console.warn("MONGODB_URI is not configured; database routes will return 503.");
 }

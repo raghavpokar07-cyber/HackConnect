@@ -427,7 +427,9 @@ const appViews: AppView[] = ["landing", "auth", "dashboard", "discover", "connec
 
 function App() {
   const readProfileId = () => {
-    const match = window.location.pathname.match(/^\/users\/([a-f\d]{24})$/i);
+    const match = window.location.pathname.match(
+      /^\/users\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
+    );
     return match?.[1] ?? "";
   };
   const readView = (): AppView => {

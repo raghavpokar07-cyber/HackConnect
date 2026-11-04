@@ -169,7 +169,7 @@ function Brand({ onClick }: { onClick: () => void }) {
 }
 
 function AuthPage({ onNavigate }: Props) {
-  const [signup, setSignup] = useState(true);
+  const [signup, setSignup] = useState(() => window.location.pathname === "/signup");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [challengeToken, setChallengeToken] = useState<string | null>(null);
@@ -1393,17 +1393,19 @@ function PublicUserProfilePage({ profileId, currentUserId, onNavigate }: {
 
     const load = async () => {
       try {
-        const [profilePage, publicRatings] = await Promise.all([
-          getPublicProfilePage(profileId),
-          getPublicRatings(profileId),
-        ]);
+        const profilePage = await getPublicProfilePage(profileId);
         if (!active) return;
         setIsPublic(profilePage.isPublic);
-        setRatings(publicRatings);
         if (profilePage.isPublic && profilePage.profile) {
           setProfile(profilePage.profile);
-          const publicAchievements = await getPublicAchievements(profileId);
-          if (active) setAchievements(publicAchievements);
+          const [publicRatings, publicAchievements] = await Promise.all([
+            getPublicRatings(profileId),
+            getPublicAchievements(profileId),
+          ]);
+          if (active) {
+            setRatings(publicRatings);
+            setAchievements(publicAchievements);
+          }
         }
       } catch (requestError) {
         if (active) setError(requestError instanceof Error ? requestError.message : "Could not load this profile.");
@@ -1450,7 +1452,7 @@ function PublicUserProfilePage({ profileId, currentUserId, onNavigate }: {
         </div>
       </header>
       {connectError && <p className="assistant-feedback" role="alert">{connectError}</p>}
-      {loading && <p className="public-profile-state">Loading profile and public ratings…</p>}
+      {loading && <p className="public-profile-state">Loading profile…</p>}
       {error && <p className="assistant-feedback" role="alert">{error}</p>}
       {!loading && !error && isPublic && profile && (
         <>
@@ -1478,10 +1480,8 @@ function PublicUserProfilePage({ profileId, currentUserId, onNavigate }: {
       {!loading && !error && isPublic === false && (
         <section className="public-profile-private">
           <span className="workspace-kicker">PRIVATE PROFILE</span>
-          <h2>Only public ratings are shown here.</h2>
-          <p>Profile details and certificates are private. Their ratings remain public.</p>
-          <div className="public-profile-section-heading"><div><span className="workspace-kicker">REPUTATION</span><h2>Public ratings</h2></div>{ratingSummary}</div>
-          {ratings.length ? ratings.map((rating) => <article className="public-profile-rating" key={rating.id}><b>{rating.score}<span> / 5</span></b><span>{rating.comment || "No written note."}</span><small>{rating.reviewer?.fullName ?? "Private reviewer"} · {new Date(rating.createdAt).toLocaleDateString()}</small></article>) : <p>No public ratings yet.</p>}
+          <h2>This builder’s profile is private.</h2>
+          <p>Profile details, ratings, and certificates are only available to the account owner.</p>
         </section>
       )}
     </main>
